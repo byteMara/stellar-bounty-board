@@ -4,19 +4,16 @@
 import axios from "axios";
 import fs from "fs";
 import path from "path";
+import { fileURLToPath } from "node:url";
+import { isMainThread, parentPort } from "node:worker_threads";
+import { scValToNative, xdr } from "@stellar/stellar-sdk";
 import { loadIndexerConfig } from "./indexerConfig.js";
-let parentPort;
-try {
-  // worker_threads parentPort is available when running as a Worker
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  parentPort = require("worker_threads").parentPort;
-} catch (e) {
-  parentPort = undefined;
-}
 
 // CONFIGURATION
 const CONTRACT_ID = process.env.SOROBAN_CONTRACT_ID || ""; // Set in env
 const SOROBAN_RPC_URL = process.env.SOROBAN_RPC_URL || "https://rpc-futurenet.stellar.org";
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 const INDEX_FILE = path.join(__dirname, "indexed-events.json");
 
 // Operational settings are env-driven (see indexerConfig.js for the variables
@@ -47,16 +44,53 @@ async function retryWithBackoff(fn, maxRetries = MAX_RETRIES) {
   throw lastError;
 }
 
-// Event normalization mapping
-function normalizeEvent(event) {
-  // Example: map Soroban event to backend-friendly record
-  // Adjust mapping as contract evolves
+const EVENT_TYPES = {
+  Create: "create",
+  Reserv: "reserve",
+  Releas: "release",
+  Refund: "refund",
+};
+
+function decodeScVal(value) {
+  if (typeof value !== "string") return value;
+  return scValToNative(xdr.ScVal.fromXDR(value, "base64"));
+}
+
+function eventData(value) {
+  const decoded = decodeScVal(value);
+  if (decoded instanceof Map) {
+    return Object.fromEntries(decoded.entries());
+  }
+  return decoded && typeof decoded === "object" ? decoded : {};
+}
+
+function jsonSafe(value) {
+  return typeof value === "bigint" ? value.toString() : value;
+}
+
+function addressString(value) {
+  return typeof value === "string" || value == null ? value : value.toString();
+}
+
+// Decode Soroban's XDR topics and value before passing events to consumers.
+export function normalizeEvent(event) {
+  const topics = Array.isArray(event.topic)
+    ? event.topic.map(decodeScVal)
+    : Array.isArray(event.topics)
+      ? event.topics.map(decodeScVal)
+      : [];
+  const data = eventData(event.value ?? event.data ?? event);
+  const bountyId = data.bounty_id ?? data.bountyId ?? event.bounty_id;
+  const maintainer = addressString(data.maintainer ?? event.maintainer);
+
   return {
-    id: event.id,
-    type: event.type, // create, reserve, release, refund
-    bountyId: event.bounty_id,
-    actor: event.actor,
-    timestamp: event.timestamp,
+    id: event.id ?? event.paging_token ?? event.pagingToken,
+    type: EVENT_TYPES[topics[1]] ?? event.type,
+    bountyId: jsonSafe(bountyId),
+    actor: maintainer ?? addressString(data.contributor ?? event.actor),
+    maintainer,
+    amount: jsonSafe(data.amount ?? event.amount),
+    timestamp: event.ledger_closed_at ?? event.ledgerClosedAt ?? event.timestamp,
     raw: event,
   };
 }
@@ -122,7 +156,7 @@ function startWorker() {
   setInterval(pollEvents, POLL_INTERVAL_MS);
 }
 
-if (require.main === module) {
+if (isMainThread && process.argv[1] && path.resolve(process.argv[1]) === __filename) {
   startWorker();
 }
 

@@ -18,6 +18,6 @@ The contract uses named error codes for all invalid operations. These codes are 
 ## Entry Points
 
 - `cancel_bounty(bounty_id, maintainer)` - cancels an **Open** bounty before reservation; returns full escrow (no fee), sets status to **Refunded**, and emits a `BountyCanceled` event. Only the original maintainer may call this.
-- `refund_bounty(bounty_id, maintainer)` - returns escrow after the deadline has passed.
+- `refund_bounty(bounty_id, maintainer)` - returns escrow after the deadline has passed and emits the `(Bounty, Refund)` event. Its `BountyRefunded` payload contains `bounty_id`, `maintainer`, and the full refunded `amount`, so indexers do not need to read the bounty state to process the refund.
 - `NewDeadlineMustBeGreaterThanCurrentDeadline` - extend_deadline requires a later deadline.
 - `BountyNotFound` - referenced bounty does not exist.

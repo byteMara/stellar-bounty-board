@@ -143,6 +143,7 @@ pub struct BountyReleased {
     pub fee_amount: i128, // how much went to fee recipient
 }
 
+/// Payload for the `(Bounty, Refund)` event emitted when escrow is refunded.
 #[contracttype]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BountyRefunded {

@@ -7,7 +7,7 @@ use alloc::string::ToString;
 use alloc::vec::Vec as StdVec;
 use soroban_sdk::{
     testutils::{Address as _, Ledger},
-    Address, BytesN, Env, symbol_short, String,
+    Address, BytesN, Env, IntoVal, String, symbol_short,
 };
 
 // ─── Version Tests ──────────────────────────────────────────────────────
@@ -724,6 +724,27 @@ fn test_refund_after_deadline_reserved_succeeds() {
     assert_eq!(bounty.status, BountyStatus::Refunded);
     // Refund returns full amount — no fee deducted
     assert_eq!(token.balance(&maintainer), 1000);
+
+    let events = env.events().all().filter_by_contract(&client.address);
+    let refund_event = events.events().last().unwrap();
+    let topics = refund_event.topics();
+    assert_eq!(
+        topics.get(0).unwrap(),
+        symbol_short!("Bounty").into_val(&env)
+    );
+    assert_eq!(
+        topics.get(1).unwrap(),
+        symbol_short!("Refund").into_val(&env)
+    );
+    assert_eq!(
+        refund_event.data(),
+        BountyRefunded {
+            bounty_id,
+            maintainer,
+            amount: 500,
+        }
+        .into_val(&env)
+    );
 }
 
 #[test]
@@ -2136,4 +2157,3 @@ fn test_upgrade_event_topic_symbols() {
     assert_eq!(s2, s2);
     let _ = (t1, t2); // keep variable use for future expansion
 }
-
